@@ -3,15 +3,14 @@ import os
 from urllib.parse import parse_qs, urlparse
 
 import requests
+import yt_dlp
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from youtube_transcript_api import YouTubeTranscriptApi
-from fastapi.middleware.cors import CORSMiddleware
 
-
-# Load variables from the .env file.
-# This lets us use OPENROUTER_API_KEY without writing the key directly in code.
+# Load variables from .env
 load_dotenv()
 
 app = FastAPI()
@@ -20,6 +19,7 @@ CUSTOM_GPT_URL = (
     "https://chatgpt.com/g/g-6a0bfd3a767c8191bc7e6cf272e81bb3-lecture-ai-tutor"
 )
 
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,28 +29,25 @@ app.add_middleware(
 )
 
 
-# Check if backend server is running.
+# Home route
 @app.get("/")
 def home():
     return {"message": "Lecture AI Tutor backend is running"}
 
 
-# Request model for endpoints that receive a YouTube URL.
+# Models
 class TranscriptRequest(BaseModel):
     youtube_url: str
 
 
-# Request model for endpoint that receives transcript text directly.
 class AnalyzeRequest(BaseModel):
     transcript: str
 
 
-# Extract YouTube video ID from a YouTube URL.
+# Extract video ID
 def extract_video_id(youtube_url: str):
     parsed_url = urlparse(youtube_url)
 
-    # Normal YouTube links:
-    # https://www.youtube.com/watch?v=VIDEO_ID
     if parsed_url.netloc in ["www.youtube.com", "youtube.com"]:
         query_params = parse_qs(parsed_url.query)
         video_id = query_params.get("v")
@@ -58,8 +55,6 @@ def extract_video_id(youtube_url: str):
         if video_id:
             return video_id[0]
 
-    # Short YouTube links:
-    # https://youtu.be/VIDEO_ID
     if parsed_url.netloc == "youtu.be":
         video_id = parsed_url.path.strip("/")
 
@@ -69,7 +64,7 @@ def extract_video_id(youtube_url: str):
     return None
 
 
-# Fetch transcript text from a YouTube URL.
+# Fetch transcript
 def fetch_youtube_transcript(youtube_url: str):
     video_id = extract_video_id(youtube_url)
 
@@ -79,22 +74,45 @@ def fetch_youtube_transcript(youtube_url: str):
             detail="Invalid YouTube URL. Please provide a valid YouTube video link.",
         )
 
+    # Method 1: youtube-transcript-api
     try:
-        # Create transcript API object.
         transcript_api = YouTubeTranscriptApi()
-
-        # Fetch transcript for the video.
         transcript = transcript_api.fetch(video_id)
 
-        # Convert transcript pieces into one readable text.
         transcript_text = " ".join(
             [item["text"] for item in transcript.to_raw_data()]
         )
 
-        return {
-            "video_id": video_id,
-            "transcript": transcript_text,
+        if len(transcript_text.strip()) > 50:
+            return {
+                "video_id": video_id,
+                "transcript": transcript_text,
+            }
+
+    except Exception:
+        pass
+
+    # Method 2: yt-dlp fallback
+    try:
+        ydl_opts = {
+            "quiet": True,
+            "skip_download": True,
+            "writesubtitles": True,
+            "writeautomaticsub": True,
         }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(youtube_url, download=False)
+
+        transcript_text = info.get("description", "")
+
+        if transcript_text and len(transcript_text.strip()) > 50:
+            return {
+                "video_id": video_id,
+                "transcript": transcript_text,
+            }
+
+        raise Exception("No transcript found.")
 
     except Exception as e:
         raise HTTPException(
@@ -103,15 +121,14 @@ def fetch_youtube_transcript(youtube_url: str):
         )
 
 
-# Analyze transcript text using OpenRouter.
+# Analyze transcript with OpenRouter
 def analyze_text_with_openrouter(transcript: str):
     transcript = transcript.strip()
 
-    # Prevent empty or tiny transcript requests.
     if len(transcript) < 50:
         raise HTTPException(
             status_code=400,
-            detail="Transcript is too short. Please provide a longer lecture transcript.",
+            detail="Transcript is too short.",
         )
 
     openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
@@ -119,7 +136,7 @@ def analyze_text_with_openrouter(transcript: str):
     if not openrouter_api_key:
         raise HTTPException(
             status_code=500,
-            detail="OPENROUTER_API_KEY is missing. Please add it to your .env file.",
+            detail="OPENROUTER_API_KEY is missing.",
         )
 
     prompt = f"""
@@ -148,13 +165,12 @@ Transcript:
 """
 
     try:
-        # OpenRouter uses an OpenAI-compatible chat completions endpoint.
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {openrouter_api_key}",
                 "Content-Type": "application/json",
-                "HTTP-Referer": "http://localhost:8000",
+                "HTTP-Referer": "https://lecture-ai-tutor-backend.onrender.com",
                 "X-Title": "Lecture AI Tutor",
             },
             json={
@@ -183,11 +199,7 @@ Transcript:
             )
 
         response_data = response.json()
-
-        # The model response text is inside choices[0].message.content.
         content = response_data["choices"][0]["message"]["content"]
-
-        # Convert JSON text into a Python dictionary.
         analysis = json.loads(content)
 
         return analysis
@@ -195,11 +207,8 @@ Transcript:
     except json.JSONDecodeError:
         raise HTTPException(
             status_code=500,
-            detail="OpenRouter returned a response, but it was not valid JSON.",
+            detail="OpenRouter response was not valid JSON.",
         )
-
-    except HTTPException:
-        raise
 
     except Exception as e:
         raise HTTPException(
@@ -208,7 +217,7 @@ Transcript:
         )
 
 
-# Create a prompt that the user can paste into the custom GPT tutor.
+# Teaching prompt
 def create_teaching_prompt(transcript: str):
     return f"""
 Teach me this lecture transcript step-by-step.
@@ -230,24 +239,24 @@ Lecture Transcript:
 """
 
 
-# Route to fetch transcript from a YouTube video.
+# Routes
 @app.post("/transcript")
 def get_transcript(request: TranscriptRequest):
     return fetch_youtube_transcript(request.youtube_url)
 
 
-# Route to analyze transcript text directly.
 @app.post("/analyze")
 def analyze_transcript(request: AnalyzeRequest):
     return analyze_text_with_openrouter(request.transcript)
 
 
-# Route to fetch a YouTube transcript and analyze it automatically.
 @app.post("/analyze-youtube")
 def analyze_youtube(request: TranscriptRequest):
     transcript_result = fetch_youtube_transcript(request.youtube_url)
 
-    analysis = analyze_text_with_openrouter(transcript_result["transcript"])
+    analysis = analyze_text_with_openrouter(
+        transcript_result["transcript"]
+    )
 
     return {
         "video_id": transcript_result["video_id"],
@@ -256,12 +265,13 @@ def analyze_youtube(request: TranscriptRequest):
     }
 
 
-# Route to prepare a learning prompt for the custom GPT tutor.
 @app.post("/prepare-learning")
 def prepare_learning(request: TranscriptRequest):
     transcript_result = fetch_youtube_transcript(request.youtube_url)
 
-    teaching_prompt = create_teaching_prompt(transcript_result["transcript"])
+    teaching_prompt = create_teaching_prompt(
+        transcript_result["transcript"]
+    )
 
     return {
         "video_id": transcript_result["video_id"],
