@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from youtube_transcript_api import YouTubeTranscriptApi
+from fastapi.middleware.cors import CORSMiddleware
 
 
 # Load variables from the .env file.
@@ -17,6 +18,14 @@ app = FastAPI()
 
 CUSTOM_GPT_URL = (
     "https://chatgpt.com/g/g-6a0bfd3a767c8191bc7e6cf272e81bb3-lecture-ai-tutor"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
