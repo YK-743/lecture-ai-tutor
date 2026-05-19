@@ -1,11 +1,11 @@
 frontend/node_modules
-backend/venv
-node_modules
-venv
+backend/venv/
+venv/
+node_modules/
 __pycache__/
 *.pyc
 .env
 backend/.env
-dist
-build
-.vite
+dist/
+build/
+.vite/
