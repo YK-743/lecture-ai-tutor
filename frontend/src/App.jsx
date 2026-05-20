@@ -1,5 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./App.css";
+
+const BACKEND_URL =
+  "https://lecture-ai-tutor-backend.onrender.com/prepare-learning";
 
 const CUSTOM_MODAL_TEXT = `Lecture AI Tutor
 
@@ -12,6 +15,13 @@ Instructions:
 3. Ask doubts anytime.
 4. Type "end session" when finished to receive premium lecture notes.`;
 
+const LOADING_STEPS = [
+  "Validating YouTube link",
+  "Fetching transcript",
+  "Preparing AI tutor",
+  "Almost ready...",
+];
+
 function getVideoIdFromUrl(url) {
   try {
     const parsedUrl = new URL(url);
@@ -20,11 +30,11 @@ function getVideoIdFromUrl(url) {
       parsedUrl.hostname === "www.youtube.com" ||
       parsedUrl.hostname === "youtube.com"
     ) {
-      return parsedUrl.searchParams.get("v");
+      return parsedUrl.searchParams.get("v") || "";
     }
 
     if (parsedUrl.hostname === "youtu.be") {
-      return parsedUrl.pathname.replace("/", "");
+      return parsedUrl.pathname.replace("/", "") || "";
     }
 
     return "";
@@ -36,6 +46,9 @@ function getVideoIdFromUrl(url) {
 function App() {
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
+  const [metadataLoading, setMetadataLoading] = useState(false);
+  const [videoMetadata, setVideoMetadata] = useState(null);
   const [lectureData, setLectureData] = useState(null);
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -44,9 +57,65 @@ function App() {
     return lectureData?.video_id || getVideoIdFromUrl(youtubeUrl);
   }, [youtubeUrl, lectureData]);
 
-  const thumbnailUrl = previewVideoId
+  const fallbackThumbnailUrl = previewVideoId
     ? `https://img.youtube.com/vi/${previewVideoId}/hqdefault.jpg`
     : "";
+
+  const thumbnailUrl = videoMetadata?.thumbnail_url || fallbackThumbnailUrl;
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingStep(0);
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      setLoadingStep((currentStep) =>
+        currentStep >= LOADING_STEPS.length - 1 ? currentStep : currentStep + 1
+      );
+    }, 1500);
+
+    return () => clearInterval(intervalId);
+  }, [loading]);
+
+  useEffect(() => {
+    const trimmedUrl = youtubeUrl.trim();
+    const videoId = getVideoIdFromUrl(trimmedUrl);
+
+    setLectureData(null);
+    setError("");
+
+    if (!videoId) {
+      setVideoMetadata(null);
+      setMetadataLoading(false);
+      return;
+    }
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        setMetadataLoading(true);
+
+        const response = await fetch(
+          `https://www.youtube.com/oembed?url=${encodeURIComponent(
+            trimmedUrl
+          )}&format=json`
+        );
+
+        if (!response.ok) {
+          throw new Error("Could not fetch video details.");
+        }
+
+        const data = await response.json();
+        setVideoMetadata(data);
+      } catch {
+        setVideoMetadata(null);
+      } finally {
+        setMetadataLoading(false);
+      }
+    }, 450);
+
+    return () => clearTimeout(timeoutId);
+  }, [youtubeUrl]);
 
   async function startLearning() {
     if (!youtubeUrl.trim()) {
@@ -55,13 +124,12 @@ function App() {
     }
 
     setLoading(true);
+    setLoadingStep(0);
     setLectureData(null);
     setError("");
 
     try {
-      const response = await fetch(
-  "https://lecture-ai-tutor-backend.onrender.com/prepare-learning",
-   {
+      const response = await fetch(BACKEND_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -117,6 +185,7 @@ function App() {
     <main className="app-shell">
       <div className="glow glow-blue"></div>
       <div className="glow glow-purple"></div>
+      <div className="glow glow-cyan"></div>
       <div className="grid-overlay"></div>
 
       <section className="hero-card">
@@ -164,20 +233,37 @@ function App() {
 
         {error && <div className="error-box">{error}</div>}
 
-        {thumbnailUrl && (
-          <div className="preview-card">
+        {metadataLoading && (
+          <div className="metadata-card metadata-skeleton">
+            <div className="skeleton-thumbnail"></div>
+            <div className="skeleton-content">
+              <div className="skeleton-line skeleton-title"></div>
+              <div className="skeleton-line"></div>
+              <div className="skeleton-line skeleton-short"></div>
+            </div>
+          </div>
+        )}
+
+        {!metadataLoading && thumbnailUrl && (
+          <div className="metadata-card">
             <div className="thumbnail-frame">
               <img src={thumbnailUrl} alt="YouTube lecture thumbnail preview" />
               <div className="thumbnail-shine"></div>
             </div>
 
-            <div className="preview-content">
-              <p className="preview-label">Thumbnail Preview</p>
-              <p className="preview-title">
-                {lectureData
-                  ? "Lecture ready for learning"
-                  : "Preview detected from your link"}
+            <div className="metadata-content">
+              <p className="preview-label">Video Preview</p>
+              <h2>
+                {videoMetadata?.title ||
+                  (lectureData
+                    ? "Lecture ready for learning"
+                    : "Preview detected from your link")}
+              </h2>
+              <p className="channel-name">
+                {videoMetadata?.author_name || "YouTube Lecture"}
               </p>
+              <p className="ready-pill">Ready for AI learning</p>
+
               {previewVideoId && (
                 <p className="video-id">
                   Video ID: <span>{previewVideoId}</span>
@@ -189,13 +275,39 @@ function App() {
 
         {loading && (
           <div className="premium-loader">
-            <div className="loader-orbit">
-              <span></span>
-              <span></span>
+            <div className="loader-header">
+              <div className="loader-orbit">
+                <span></span>
+                <span></span>
+              </div>
+
+              <div>
+                <p>{LOADING_STEPS[loadingStep]}</p>
+                <small>Building your guided learning session</small>
+              </div>
             </div>
-            <div>
-              <p>Preparing your AI tutor</p>
-              <small>Fetching transcript and building your learning prompt</small>
+
+            <div className="progress-track">
+              <div
+                className="progress-fill"
+                style={{
+                  width: `${((loadingStep + 1) / LOADING_STEPS.length) * 100}%`,
+                }}
+              ></div>
+            </div>
+
+            <div className="step-list">
+              {LOADING_STEPS.map((step, index) => (
+                <div
+                  className={`step-item ${
+                    index === loadingStep ? "active" : ""
+                  } ${index < loadingStep ? "complete" : ""}`}
+                  key={step}
+                >
+                  <span>{index + 1}</span>
+                  <p>{step}</p>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -207,7 +319,7 @@ function App() {
               <h2>Lecture ready for learning</h2>
               <p>
                 Your transcript prompt is prepared. The next click copies it,
-                opens your custom GPT, and lets you paste it there.
+                shows your instructions, and then opens your custom GPT.
               </p>
               <p className="video-id success-video-id">
                 Video ID: <span>{lectureData.video_id}</span>
@@ -223,7 +335,10 @@ function App() {
 
       {showModal && (
         <div className="modal-backdrop" onClick={closeModal}>
-          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="modal-card"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="modal-icon">✓</div>
             <h2>Prompt copied</h2>
             <p>Paste it in Lecture AI Tutor.</p>
