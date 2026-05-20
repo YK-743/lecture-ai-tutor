@@ -103,9 +103,18 @@ def fetch_youtube_transcript(youtube_url: str):
 
         data = response.json()
 
+        transcript = data.get("content", [])
+
         transcript_text = " ".join(
-    [item["text"] for item in data.get("transcript", [])]
-)
+        item.get("text", "")
+        for item in transcript
+        )
+
+        if not transcript_text.strip():
+         raise HTTPException(
+        status_code=400,
+        detail="No transcript found."
+    )
 
         if not transcript_text.strip():
             raise HTTPException(
