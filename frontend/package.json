@@ -4,16 +4,17 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-  "dev": "vite",
-  "build": "vite build",
-  "preview": "vite preview"
-},
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
     "@vitejs/plugin-react": "^6.0.2",
+    "firebase": "^12.13.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "vite": "^8.0.13"

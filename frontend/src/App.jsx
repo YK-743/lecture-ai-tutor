@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  onAuthStateChanged,
+  signInWithRedirect,
+  signOut,
+} from "firebase/auth";
 import "./App.css";
+import { auth, provider } from "./firebase";
 
 const BACKEND_URL =
   "https://lecture-ai-tutor-backend.onrender.com/prepare-learning";
@@ -21,6 +27,10 @@ const LOADING_STEPS = [
   "Preparing AI tutor",
   "Almost ready...",
 ];
+
+const PENDING_YOUTUBE_URL_KEY = "pendingYoutubeUrl";
+const PENDING_PREVIEW_STATE_KEY = "pendingYoutubePreviewState";
+const LOGIN_MODAL_DISMISSED_KEY = "loginModalDismissed";
 
 function getVideoIdFromUrl(url) {
   try {
@@ -51,6 +61,11 @@ function App() {
   const [videoMetadata, setVideoMetadata] = useState(null);
   const [lectureData, setLectureData] = useState(null);
   const [error, setError] = useState("");
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authMessage, setAuthMessage] = useState("");
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [restoredPreviewUrl, setRestoredPreviewUrl] = useState("");
   const [showModal, setShowModal] = useState(false);
 
   const previewVideoId = useMemo(() => {
@@ -62,6 +77,57 @@ function App() {
     : "";
 
   const thumbnailUrl = videoMetadata?.thumbnail_url || fallbackThumbnailUrl;
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthReady(true);
+
+      if (currentUser) {
+        const pendingPreviewState = localStorage.getItem(
+          PENDING_PREVIEW_STATE_KEY
+        );
+        const pendingYoutubeUrl = localStorage.getItem(PENDING_YOUTUBE_URL_KEY);
+
+        if (pendingPreviewState) {
+          try {
+            const savedPreview = JSON.parse(pendingPreviewState);
+
+            if (savedPreview.youtubeUrl) {
+              setYoutubeUrl(savedPreview.youtubeUrl);
+              setRestoredPreviewUrl(savedPreview.youtubeUrl);
+            }
+
+            if (savedPreview.videoMetadata) {
+              setVideoMetadata(savedPreview.videoMetadata);
+            }
+
+            setMetadataLoading(false);
+            localStorage.removeItem(PENDING_PREVIEW_STATE_KEY);
+            localStorage.removeItem(PENDING_YOUTUBE_URL_KEY);
+          } catch {
+            localStorage.removeItem(PENDING_PREVIEW_STATE_KEY);
+          }
+        } else if (pendingYoutubeUrl) {
+          setYoutubeUrl(pendingYoutubeUrl);
+          localStorage.removeItem(PENDING_YOUTUBE_URL_KEY);
+        }
+
+        setAuthMessage("");
+        setShowLoginModal(false);
+      } else {
+        const loginModalDismissed = sessionStorage.getItem(
+          LOGIN_MODAL_DISMISSED_KEY
+        );
+
+        if (!loginModalDismissed) {
+          setShowLoginModal(true);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (!loading) {
@@ -91,6 +157,11 @@ function App() {
       return;
     }
 
+    if (restoredPreviewUrl && trimmedUrl === restoredPreviewUrl) {
+      setRestoredPreviewUrl("");
+      return;
+    }
+
     const timeoutId = setTimeout(async () => {
       try {
         setMetadataLoading(true);
@@ -115,7 +186,49 @@ function App() {
     }, 450);
 
     return () => clearTimeout(timeoutId);
-  }, [youtubeUrl]);
+  }, [youtubeUrl, restoredPreviewUrl]);
+
+  async function handleGoogleSignIn() {
+    setError("");
+    setAuthMessage("");
+
+    try {
+      if (youtubeUrl.trim()) {
+        const previewState = {
+          youtubeUrl,
+          videoMetadata,
+          thumbnailUrl,
+          title: videoMetadata?.title || "",
+          channelName: videoMetadata?.author_name || "",
+        };
+
+        localStorage.setItem(PENDING_YOUTUBE_URL_KEY, youtubeUrl);
+        localStorage.setItem(
+          PENDING_PREVIEW_STATE_KEY,
+          JSON.stringify(previewState)
+        );
+      }
+
+      await signInWithRedirect(auth, provider);
+    } catch {
+      setAuthMessage("Google sign in was not completed. Please try again.");
+    }
+  }
+
+  async function handleLogout() {
+    setError("");
+    setAuthMessage("");
+
+    try {
+      sessionStorage.setItem(LOGIN_MODAL_DISMISSED_KEY, "true");
+      await signOut(auth);
+      setLectureData(null);
+      setShowLoginModal(false);
+      sessionStorage.removeItem(LOGIN_MODAL_DISMISSED_KEY);
+    } catch {
+      setAuthMessage("Logout failed. Please try again.");
+    }
+  }
 
   async function startLearning() {
     if (!youtubeUrl.trim()) {
@@ -127,6 +240,7 @@ function App() {
     setLoadingStep(0);
     setLectureData(null);
     setError("");
+    setAuthMessage("");
 
     try {
       const response = await fetch(BACKEND_URL, {
@@ -181,6 +295,11 @@ function App() {
     setShowModal(false);
   }
 
+  function closeLoginModal() {
+    sessionStorage.setItem(LOGIN_MODAL_DISMISSED_KEY, "true");
+    setShowLoginModal(false);
+  }
+
   return (
     <main className="app-shell">
       <div className="glow glow-blue"></div>
@@ -189,11 +308,32 @@ function App() {
       <div className="grid-overlay"></div>
 
       <section className="hero-card">
-        <div className="brand-row">
-          <div className="brand-mark">AI</div>
-          <div>
-            <p className="eyebrow">Personal coding lecture companion</p>
-            <h1>Lecture AI Tutor</h1>
+        <div className="top-bar">
+          <div className="brand-row">
+            <div className="brand-mark">AI</div>
+            <div>
+              <p className="eyebrow">Personal coding lecture companion</p>
+              <h1>Lecture AI Tutor</h1>
+            </div>
+          </div>
+
+          <div className="auth-panel">
+            {!authReady ? null : user ? (
+              <div className="user-pill">
+                <img
+                  src={user.photoURL || ""}
+                  alt={user.displayName || "Google user"}
+                  className="user-avatar"
+                />
+                <div className="user-copy">
+                  <span>Signed in as</span>
+                  <strong>{user.displayName || "Google User"}</strong>
+                </div>
+                <button className="logout-button" onClick={handleLogout}>
+                  Logout
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -201,6 +341,8 @@ function App() {
           Turn a YouTube coding lecture into a guided learning session with
           your custom GPT tutor.
         </p>
+
+        {authMessage && <div className="auth-message">{authMessage}</div>}
 
         <div className="input-panel">
           <label htmlFor="youtube-url">YouTube lecture link</label>
@@ -351,6 +493,33 @@ function App() {
 
             <button className="modal-button" onClick={continueLearning}>
               Continue Learning
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showLoginModal && (
+        <div className="modal-backdrop login-modal-backdrop" onClick={closeLoginModal}>
+          <div
+            className="login-modal-card"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="login-modal-glow"></div>
+            <div className="login-modal-icon">AI</div>
+            <h2>Sign in to Continue</h2>
+            <p>
+              Save your learning progress and unlock AI-powered study sessions
+            </p>
+
+            <button className="google-button login-google-button" onClick={handleGoogleSignIn}>
+              <span className="google-icon" aria-hidden="true">
+                <span className="google-g">G</span>
+              </span>
+              Continue with Google
+            </button>
+
+            <button className="cancel-login-button" onClick={closeLoginModal}>
+              Cancel
             </button>
           </div>
         </div>
