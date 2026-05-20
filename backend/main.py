@@ -71,55 +71,58 @@ def fetch_youtube_transcript(youtube_url: str):
     if not video_id:
         raise HTTPException(
             status_code=400,
-            detail="Invalid YouTube URL. Please provide a valid YouTube video link.",
+            detail="Invalid YouTube URL."
         )
 
-    # Method 1: youtube-transcript-api
-    try:
-        transcript_api = YouTubeTranscriptApi()
-        transcript = transcript_api.fetch(video_id)
+    api_key = os.getenv("SUPADATA_API_KEY")
 
-        transcript_text = " ".join(
-            [item["text"] for item in transcript.to_raw_data()]
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="SUPADATA_API_KEY missing."
         )
 
-        if len(transcript_text.strip()) > 50:
-            return {
-                "video_id": video_id,
-                "transcript": transcript_text,
-            }
-
-    except Exception:
-        pass
-
-    # Method 2: yt-dlp fallback
     try:
-        ydl_opts = {
-            "quiet": True,
-            "skip_download": True,
-            "writesubtitles": True,
-            "writeautomaticsub": True,
+        url = f"https://api.supadata.ai/v1/youtube/transcript?videoId={video_id}"
+
+        headers = {
+            "x-api-key": api_key
         }
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(youtube_url, download=False)
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=30
+        )
 
-        transcript_text = info.get("description", "")
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Transcript API error: {response.text}"
+            )
 
-        if transcript_text and len(transcript_text.strip()) > 50:
-            return {
-                "video_id": video_id,
-                "transcript": transcript_text,
-            }
+        data = response.json()
 
-        raise Exception("No transcript found.")
+        transcript_text = " ".join(
+            [item["text"] for item in data.get("transcript", [])]
+        )
+
+        if not transcript_text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="No transcript found."
+            )
+
+        return {
+            "video_id": video_id,
+            "transcript": transcript_text
+        }
 
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"Could not fetch transcript: {str(e)}",
+            detail=f"Could not fetch transcript: {str(e)}"
         )
-
 
 # Analyze transcript with OpenRouter
 def analyze_text_with_openrouter(transcript: str):
