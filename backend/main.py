@@ -15,8 +15,9 @@ load_dotenv()
 
 app = FastAPI()
 
-CUSTOM_GPT_URL = (
-    "https://chatgpt.com/g/g-6a0bfd3a767c8191bc7e6cf272e81bb3-lecture-ai-tutor"
+CUSTOM_GPT_URL = os.getenv(
+    "CUSTOM_GPT_URL",
+    "https://chatgpt.com/g/g-6a0bfd3a767c8191bc7e6cf272e81bb3-lecture-ai-tutor",
 )
 
 # CORS

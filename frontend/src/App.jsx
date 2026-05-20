@@ -7,8 +7,7 @@ import {
 import "./App.css";
 import { auth, provider } from "./firebase";
 
-const BACKEND_URL =
-  "https://lecture-ai-tutor-backend.onrender.com/prepare-learning";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 const CUSTOM_MODAL_TEXT = `Lecture AI Tutor
 
@@ -31,6 +30,8 @@ const LOADING_STEPS = [
 const PENDING_YOUTUBE_URL_KEY = "pendingYoutubeUrl";
 const PENDING_PREVIEW_STATE_KEY = "pendingYoutubePreviewState";
 const LOGIN_MODAL_DISMISSED_KEY = "loginModalDismissed";
+const LOGIN_HANDLED_KEY = "loginHandled";
+const LOGIN_SUCCESS_TOAST_KEY = "loginSuccessToastPending";
 
 function getVideoIdFromUrl(url) {
   try {
@@ -67,6 +68,7 @@ function App() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [restoredPreviewUrl, setRestoredPreviewUrl] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
 
   const previewVideoId = useMemo(() => {
     return lectureData?.video_id || getVideoIdFromUrl(youtubeUrl);
@@ -79,11 +81,28 @@ function App() {
   const thumbnailUrl = videoMetadata?.thumbnail_url || fallbackThumbnailUrl;
 
   useEffect(() => {
+    if (!toastMessage) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setToastMessage("");
+    }, 2600);
+
+    return () => clearTimeout(timeoutId);
+  }, [toastMessage]);
+
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      console.log("AUTH USER:", currentUser);
+
       setUser(currentUser);
       setAuthReady(true);
 
       if (currentUser) {
+        sessionStorage.setItem(LOGIN_HANDLED_KEY, "true");
+        sessionStorage.setItem(LOGIN_MODAL_DISMISSED_KEY, "true");
+
         const pendingPreviewState = localStorage.getItem(
           PENDING_PREVIEW_STATE_KEY
         );
@@ -115,12 +134,16 @@ function App() {
 
         setAuthMessage("");
         setShowLoginModal(false);
-      } else {
-        const loginModalDismissed = sessionStorage.getItem(
-          LOGIN_MODAL_DISMISSED_KEY
-        );
 
-        if (!loginModalDismissed) {
+        if (localStorage.getItem(LOGIN_SUCCESS_TOAST_KEY)) {
+          setToastMessage("✅ Signed in successfully");
+          localStorage.removeItem(LOGIN_SUCCESS_TOAST_KEY);
+        }
+      } else {
+        const loginHandled = sessionStorage.getItem(LOGIN_HANDLED_KEY);
+        const loginModalDismissed = sessionStorage.getItem(LOGIN_MODAL_DISMISSED_KEY);
+
+        if (!loginHandled && !loginModalDismissed) {
           setShowLoginModal(true);
         }
       }
@@ -209,8 +232,11 @@ function App() {
         );
       }
 
+      sessionStorage.setItem(LOGIN_HANDLED_KEY, "true");
+      localStorage.setItem(LOGIN_SUCCESS_TOAST_KEY, "true");
       await signInWithRedirect(auth, provider);
     } catch {
+      localStorage.removeItem(LOGIN_SUCCESS_TOAST_KEY);
       setAuthMessage("Google sign in was not completed. Please try again.");
     }
   }
@@ -220,11 +246,12 @@ function App() {
     setAuthMessage("");
 
     try {
-      sessionStorage.setItem(LOGIN_MODAL_DISMISSED_KEY, "true");
+      sessionStorage.removeItem(LOGIN_HANDLED_KEY);
+      sessionStorage.removeItem(LOGIN_MODAL_DISMISSED_KEY);
       await signOut(auth);
       setLectureData(null);
       setShowLoginModal(false);
-      sessionStorage.removeItem(LOGIN_MODAL_DISMISSED_KEY);
+      setToastMessage("Signed out successfully");
     } catch {
       setAuthMessage("Logout failed. Please try again.");
     }
@@ -297,7 +324,13 @@ function App() {
 
   function closeLoginModal() {
     sessionStorage.setItem(LOGIN_MODAL_DISMISSED_KEY, "true");
+    sessionStorage.setItem(LOGIN_HANDLED_KEY, "true");
     setShowLoginModal(false);
+  }
+
+  function openLoginModal() {
+    setAuthMessage("");
+    setShowLoginModal(true);
   }
 
   return (
@@ -319,21 +352,30 @@ function App() {
 
           <div className="auth-panel">
             {!authReady ? null : user ? (
-              <div className="user-pill">
+              <div className="auth-status-card signed-in-status">
+                <span className="online-dot"></span>
                 <img
                   src={user.photoURL || ""}
                   alt={user.displayName || "Google user"}
                   className="user-avatar"
                 />
                 <div className="user-copy">
-                  <span>Signed in as</span>
+                  <span>Signed In</span>
                   <strong>{user.displayName || "Google User"}</strong>
                 </div>
                 <button className="logout-button" onClick={handleLogout}>
                   Logout
                 </button>
               </div>
-            ) : null}
+            ) : (
+              <button className="auth-status-card guest-status" onClick={openLoginModal}>
+                <div className="guest-orb"></div>
+                <div className="guest-copy">
+                  <strong>Guest Mode</strong>
+                  <span>Sign in to sync learning progress</span>
+                </div>
+              </button>
+            )}
           </div>
         </div>
 
@@ -498,7 +540,7 @@ function App() {
         </div>
       )}
 
-      {showLoginModal && (
+      {showLoginModal && !user && (
         <div className="modal-backdrop login-modal-backdrop" onClick={closeLoginModal}>
           <div
             className="login-modal-card"
@@ -524,6 +566,8 @@ function App() {
           </div>
         </div>
       )}
+
+      {toastMessage && <div className="auth-toast">{toastMessage}</div>}
     </main>
   );
 }

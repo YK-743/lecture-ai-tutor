@@ -6,6 +6,7 @@ __pycache__/
 *.pyc
 .env
 backend/.env
+frontend/.env
 dist/
 build/
 .vite/
