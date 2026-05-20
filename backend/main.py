@@ -103,9 +103,9 @@ def fetch_youtube_transcript(youtube_url: str):
 
         data = response.json()
 
-        print("SUPADATA RESPONSE:", data)
-
-        transcript_text=str(data)
+        transcript_text = " ".join(
+    [item["text"] for item in data.get("transcript", [])]
+)
 
         if not transcript_text.strip():
             raise HTTPException(
