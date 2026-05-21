@@ -572,6 +572,148 @@ function App() {
     return <span className={`${className} fallback-avatar`}>{userInitial}</span>;
   }
 
+  const authPanel = !authReady ? null : user ? (
+    <div className="profile-menu-wrap">
+      <button
+        className="profile-trigger"
+        onClick={() => setProfileOpen((isOpen) => !isOpen)}
+        type="button"
+      >
+        {renderAvatar(profileAvatar, userLabel)}
+        <span>{userLabel}</span>
+        <span className="profile-chevron">v</span>
+      </button>
+
+      {profileOpen && (
+        <div className="profile-dropdown">
+          <button type="button">Profile</button>
+          <button type="button">History</button>
+          <button type="button">Settings</button>
+          <button type="button" onClick={handleLogout}>
+            Logout
+          </button>
+        </div>
+      )}
+    </div>
+  ) : (
+    <div className="auth-entry">
+      <div className="auth-action-row">
+        <button
+          className={`auth-pill ${
+            authMode === "login" && authCardOpen ? "active" : ""
+          }`}
+          onClick={() => openAuthCard("login")}
+          type="button"
+        >
+          Log In
+        </button>
+        <button
+          className={`auth-pill ${
+            authMode === "signup" && authCardOpen ? "active" : ""
+          }`}
+          onClick={() => openAuthCard("signup")}
+          type="button"
+        >
+          Sign Up
+        </button>
+      </div>
+
+      {authCardOpen && (
+        <div className="inline-auth-card">
+          <div className="inline-auth-head">
+            <strong>{authMode === "login" ? "Log In" : "Create account"}</strong>
+            <button
+              className="auth-close"
+              onClick={() => setAuthCardOpen(false)}
+              type="button"
+              aria-label="Close auth card"
+            >
+              x
+            </button>
+          </div>
+
+          <button
+            className="google-button inline-google-button"
+            onClick={handleGoogleSignIn}
+            disabled={authSubmitting}
+            type="button"
+          >
+            <span className="google-icon" aria-hidden="true">
+              <span className="google-g">G</span>
+            </span>
+            Continue with Google
+          </button>
+
+          <div className="auth-divider">
+            <span></span>
+            <p>OR</p>
+            <span></span>
+          </div>
+
+          <form
+            className="email-auth-form"
+            onSubmit={authMode === "login" ? handleEmailLogin : handleEmailSignup}
+          >
+            <input
+              type="email"
+              value={authEmail}
+              onChange={(event) => {
+                setAuthEmail(event.target.value);
+                setAuthMessage("");
+                setAuthActionMode("");
+              }}
+              placeholder="Email"
+              autoComplete="email"
+              required
+            />
+            <input
+              type="password"
+              value={authPassword}
+              onChange={(event) => {
+                setAuthPassword(event.target.value);
+                setAuthMessage("");
+                setAuthActionMode("");
+              }}
+              placeholder="Password"
+              autoComplete={authMode === "login" ? "current-password" : "new-password"}
+              required
+            />
+            <div className="email-auth-actions">
+              <button
+                className="email-auth-button"
+                type="submit"
+                disabled={authSubmitting}
+              >
+                {authMode === "login" ? "Login" : "Create Account"}
+              </button>
+            </div>
+          </form>
+
+          <p className="auth-switch-copy">
+            {authMode === "login" ? "New here? " : "Already have an account? "}
+            <button
+              type="button"
+              onClick={() => switchAuthMode(authMode === "login" ? "signup" : "login")}
+            >
+              {authMode === "login" ? "Create Account" : "Log In"}
+            </button>
+          </p>
+
+          {authMessage && (
+            <div className="inline-auth-message">
+              <p>{authMessage}</p>
+              {authActionMode && (
+                <button type="button" onClick={() => switchAuthMode(authActionMode)}>
+                  {authActionMode === "login" ? "Go to Login" : "Go to Sign Up"}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <main className="app-shell">
       <div className="glow glow-blue"></div>
@@ -579,181 +721,32 @@ function App() {
       <div className="glow glow-cyan"></div>
       <div className="grid-overlay"></div>
 
-      <section className="hero-card">
-        <div className="top-bar">
-          <div className="brand-row">
+      <nav className="site-nav">
+        <div className="nav-inner">
+          <div className="nav-brand">
             <div className="brand-mark">AI</div>
             <div>
-              <p className="eyebrow">Personal coding lecture companion</p>
-              <h1>Lecture AI Tutor</h1>
+              <span>Lecture AI Tutor</span>
+              <small>Coding lecture companion</small>
             </div>
           </div>
 
-          <div className="auth-panel">
-            {!authReady ? null : user ? (
-              <div className="profile-menu-wrap">
-                <button
-                  className="profile-trigger"
-                  onClick={() => setProfileOpen((isOpen) => !isOpen)}
-                  type="button"
-                >
-                  {renderAvatar(profileAvatar, userLabel)}
-                  <span>{userLabel}</span>
-                  <span className="profile-chevron">v</span>
-                </button>
-
-                {profileOpen && (
-                  <div className="profile-dropdown">
-                    <button type="button">Profile</button>
-                    <button type="button">History</button>
-                    <button type="button">Settings</button>
-                    <button type="button" onClick={handleLogout}>
-                      Logout
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="auth-entry">
-                <div className="auth-action-row">
-                  <button
-                    className={`auth-pill ${
-                      authMode === "login" && authCardOpen ? "active" : ""
-                    }`}
-                    onClick={() => openAuthCard("login")}
-                    type="button"
-                  >
-                    Log In
-                  </button>
-                  <button
-                    className={`auth-pill ${
-                      authMode === "signup" && authCardOpen ? "active" : ""
-                    }`}
-                    onClick={() => openAuthCard("signup")}
-                    type="button"
-                  >
-                    Sign Up
-                  </button>
-                </div>
-
-                {authCardOpen && (
-                  <div className="inline-auth-card">
-                    <div className="inline-auth-head">
-                      <strong>
-                        {authMode === "login" ? "Log In" : "Create account"}
-                      </strong>
-                      <button
-                        className="auth-close"
-                        onClick={() => setAuthCardOpen(false)}
-                        type="button"
-                        aria-label="Close auth card"
-                      >
-                        x
-                      </button>
-                    </div>
-
-                    <button
-                      className="google-button inline-google-button"
-                      onClick={handleGoogleSignIn}
-                      disabled={authSubmitting}
-                      type="button"
-                    >
-                      <span className="google-icon" aria-hidden="true">
-                        <span className="google-g">G</span>
-                      </span>
-                      Continue with Google
-                    </button>
-
-                    <div className="auth-divider">
-                      <span></span>
-                      <p>OR</p>
-                      <span></span>
-                    </div>
-
-                    <form
-                      className="email-auth-form"
-                      onSubmit={
-                        authMode === "login" ? handleEmailLogin : handleEmailSignup
-                      }
-                    >
-                      <input
-                        type="email"
-                        value={authEmail}
-                        onChange={(event) => {
-                          setAuthEmail(event.target.value);
-                          setAuthMessage("");
-                          setAuthActionMode("");
-                        }}
-                        placeholder="Email"
-                        autoComplete="email"
-                        required
-                      />
-                      <input
-                        type="password"
-                        value={authPassword}
-                        onChange={(event) => {
-                          setAuthPassword(event.target.value);
-                          setAuthMessage("");
-                          setAuthActionMode("");
-                        }}
-                        placeholder="Password"
-                        autoComplete={
-                          authMode === "login" ? "current-password" : "new-password"
-                        }
-                        required
-                      />
-                      <div className="email-auth-actions">
-                        <button
-                          className="email-auth-button"
-                          type="submit"
-                          disabled={authSubmitting}
-                        >
-                          {authMode === "login" ? "Login" : "Create Account"}
-                        </button>
-                      </div>
-                    </form>
-
-                    <p className="auth-switch-copy">
-                      {authMode === "login"
-                        ? "New here? "
-                        : "Already have an account? "}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          switchAuthMode(authMode === "login" ? "signup" : "login")
-                        }
-                      >
-                        {authMode === "login" ? "Create Account" : "Log In"}
-                      </button>
-                    </p>
-
-                    {authMessage && (
-                      <div className="inline-auth-message">
-                        <p>{authMessage}</p>
-                        {authActionMode && (
-                          <button
-                            type="button"
-                            onClick={() => switchAuthMode(authActionMode)}
-                          >
-                            {authActionMode === "login"
-                              ? "Go to Login"
-                              : "Go to Sign Up"}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <div className="auth-panel">{authPanel}</div>
         </div>
+      </nav>
 
-        <p className="hero-copy">
-          Turn a YouTube coding lecture into a guided learning session with
-          your custom GPT tutor.
-        </p>
+      <section className="hero-section">
+        <div className="section-inner hero-inner">
+          <p className="eyebrow">Personal coding lecture companion</p>
+          <h1>Lecture AI Tutor</h1>
+          <p className="hero-copy">
+            Turn a YouTube coding lecture into a guided learning session with
+            transcript-aware prompts, video context, and your custom GPT tutor.
+          </p>
+        </div>
+      </section>
 
+      <div className="page-content">
         {authMessage && !authCardOpen && (
           <div className="auth-message">{authMessage}</div>
         )}
@@ -825,136 +818,162 @@ function App() {
           </form>
         )}
 
-        <div className="input-panel">
-          <label htmlFor="youtube-url">YouTube lecture link</label>
-
-          <div className="input-wrap">
-            <input
-              id="youtube-url"
-              type="text"
-              value={youtubeUrl}
-              onChange={(event) => setYoutubeUrl(event.target.value)}
-              placeholder="Paste YouTube lecture link here"
-            />
+        <section className="input-section section-shell">
+          <div className="section-heading">
+            <p className="preview-label">Start learning</p>
+            <h2>Paste a lecture link</h2>
           </div>
 
-          <button
-            className="primary-button"
-            onClick={startLearning}
-            disabled={loading}
-          >
-            {loading ? (
-              <span className="loading-inline">
-                <span className="spinner"></span>
-                Analyzing lecture...
-              </span>
-            ) : (
-              "Analyze Lecture"
-            )}
-          </button>
-        </div>
+          <div className="input-panel">
+            <label htmlFor="youtube-url">YouTube lecture link</label>
+
+            <div className="input-action-row">
+              <div className="input-wrap">
+                <input
+                  id="youtube-url"
+                  type="text"
+                  value={youtubeUrl}
+                  onChange={(event) => setYoutubeUrl(event.target.value)}
+                  placeholder="Paste YouTube lecture link here"
+                />
+              </div>
+
+              <button
+                className="primary-button"
+                onClick={startLearning}
+                disabled={loading}
+              >
+                {loading ? (
+                  <span className="loading-inline">
+                    <span className="spinner"></span>
+                    Analyzing...
+                  </span>
+                ) : (
+                  "Analyze Lecture"
+                )}
+              </button>
+            </div>
+          </div>
+        </section>
 
         {error && <div className="error-box">{error}</div>}
 
         {metadataLoading && (
-          <div className="metadata-card metadata-skeleton">
-            <div className="skeleton-thumbnail"></div>
-            <div className="skeleton-content">
-              <div className="skeleton-line skeleton-title"></div>
-              <div className="skeleton-line"></div>
-              <div className="skeleton-line skeleton-short"></div>
+          <section className="preview-section section-shell">
+            <div className="metadata-card metadata-skeleton">
+              <div className="skeleton-thumbnail"></div>
+              <div className="skeleton-content">
+                <div className="skeleton-line skeleton-title"></div>
+                <div className="skeleton-line"></div>
+                <div className="skeleton-line skeleton-short"></div>
+              </div>
             </div>
-          </div>
+          </section>
         )}
 
         {!metadataLoading && thumbnailUrl && (
-          <div className="metadata-card">
-            <div className="thumbnail-frame">
-              <img src={thumbnailUrl} alt="YouTube lecture thumbnail preview" />
-              <div className="thumbnail-shine"></div>
-            </div>
-
-            <div className="metadata-content">
+          <section className="preview-section section-shell">
+            <div className="section-heading">
               <p className="preview-label">Video Preview</p>
-              <h2>
-                {videoMetadata?.title ||
-                  (lectureData
-                    ? "Lecture ready for learning"
-                    : "Preview detected from your link")}
-              </h2>
-              <p className="channel-name">
-                {videoMetadata?.author_name || "YouTube Lecture"}
-              </p>
-              <p className="ready-pill">Ready for AI learning</p>
-
-              {previewVideoId && (
-                <p className="video-id">
-                  Video ID: <span>{previewVideoId}</span>
-                </p>
-              )}
+              <h2>Lecture detected</h2>
             </div>
-          </div>
+
+            <div className="metadata-card">
+              <div className="thumbnail-frame">
+                <img src={thumbnailUrl} alt="YouTube lecture thumbnail preview" />
+                <div className="thumbnail-shine"></div>
+              </div>
+
+              <div className="metadata-content">
+                <h2>
+                  {videoMetadata?.title ||
+                    (lectureData
+                      ? "Lecture ready for learning"
+                      : "Preview detected from your link")}
+                </h2>
+                <p className="channel-name">
+                  {videoMetadata?.author_name || "YouTube Lecture"}
+                </p>
+                <p className="ready-pill">Ready for AI learning</p>
+
+                {previewVideoId && (
+                  <p className="video-id">
+                    Video ID: <span>{previewVideoId}</span>
+                  </p>
+                )}
+              </div>
+            </div>
+          </section>
         )}
 
         {loading && (
-          <div className="premium-loader">
-            <div className="loader-header">
-              <div className="loader-orbit">
-                <span></span>
-                <span></span>
-              </div>
-
-              <div>
-                <p>{LOADING_STEPS[loadingStep]}</p>
-                <small>Building your guided learning session</small>
-              </div>
-            </div>
-
-            <div className="progress-track">
-              <div
-                className="progress-fill"
-                style={{
-                  width: `${((loadingStep + 1) / LOADING_STEPS.length) * 100}%`,
-                }}
-              ></div>
-            </div>
-
-            <div className="step-list">
-              {LOADING_STEPS.map((step, index) => (
-                <div
-                  className={`step-item ${
-                    index === loadingStep ? "active" : ""
-                  } ${index < loadingStep ? "complete" : ""}`}
-                  key={step}
-                >
-                  <span>{index + 1}</span>
-                  <p>{step}</p>
+          <section className="results-section section-shell">
+            <div className="premium-loader">
+              <div className="loader-header">
+                <div className="loader-orbit">
+                  <span></span>
+                  <span></span>
                 </div>
-              ))}
+
+                <div>
+                  <p>{LOADING_STEPS[loadingStep]}</p>
+                  <small>Building your guided learning session</small>
+                </div>
+              </div>
+
+              <div className="progress-track">
+                <div
+                  className="progress-fill"
+                  style={{
+                    width: `${((loadingStep + 1) / LOADING_STEPS.length) * 100}%`,
+                  }}
+                ></div>
+              </div>
+
+              <div className="step-list">
+                {LOADING_STEPS.map((step, index) => (
+                  <div
+                    className={`step-item ${
+                      index === loadingStep ? "active" : ""
+                    } ${index < loadingStep ? "complete" : ""}`}
+                    key={step}
+                  >
+                    <span>{index + 1}</span>
+                    <p>{step}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          </section>
         )}
 
         {lectureData && (
-          <div className="success-card">
-            <div>
-              <p className="success-kicker">Ready</p>
-              <h2>Lecture ready for learning</h2>
-              <p>
-                Your transcript prompt is prepared. The next click copies it,
-                shows your instructions, and then opens your custom GPT.
-              </p>
-              <p className="video-id success-video-id">
-                Video ID: <span>{lectureData.video_id}</span>
-              </p>
-            </div>
+          <section className="results-section section-shell">
+            <div className="success-card">
+              <div>
+                <p className="success-kicker">Ready</p>
+                <h2>Lecture ready for learning</h2>
+                <p>
+                  Your transcript prompt is prepared. The next click copies it,
+                  shows your instructions, and then opens your custom GPT.
+                </p>
+                <p className="video-id success-video-id">
+                  Video ID: <span>{lectureData.video_id}</span>
+                </p>
+              </div>
 
-            <button className="tutor-button" onClick={openTutor}>
-              Learn With AI Tutor
-            </button>
-          </div>
+              <button className="tutor-button" onClick={openTutor}>
+                Learn With AI Tutor
+              </button>
+            </div>
+          </section>
         )}
-      </section>
+
+        <footer className="site-footer">
+          <span>Lecture AI Tutor</span>
+          <p>Built for focused coding lecture study.</p>
+        </footer>
+      </div>
 
       {showModal && (
         <div className="modal-backdrop" onClick={closeModal}>
