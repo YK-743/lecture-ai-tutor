@@ -17,6 +17,15 @@ import {
   where,
 } from "firebase/firestore";
 import "./App.css";
+import Footer from "./components/Footer";
+import HeroSection from "./components/HeroSection";
+import Loader from "./components/Loader";
+import Modal from "./components/Modal";
+import Navbar from "./components/Navbar";
+import ProfileSetup from "./components/ProfileSetup";
+import SuccessCard from "./components/SuccessCard";
+import Toast from "./components/Toast";
+import VideoPreview from "./components/VideoPreview";
 import { auth, db, provider } from "./firebase";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
@@ -476,6 +485,10 @@ function App() {
     setAuthCardOpen(true);
   }
 
+  function closeAuthCard() {
+    setAuthCardOpen(false);
+  }
+
   function switchAuthMode(mode) {
     setAuthMode(mode);
     setAuthMessage("");
@@ -572,148 +585,6 @@ function App() {
     return <span className={`${className} fallback-avatar`}>{userInitial}</span>;
   }
 
-  const authPanel = !authReady ? null : user ? (
-    <div className="profile-menu-wrap">
-      <button
-        className="profile-trigger"
-        onClick={() => setProfileOpen((isOpen) => !isOpen)}
-        type="button"
-      >
-        {renderAvatar(profileAvatar, userLabel)}
-        <span>{userLabel}</span>
-        <span className="profile-chevron">v</span>
-      </button>
-
-      {profileOpen && (
-        <div className="profile-dropdown">
-          <button type="button">Profile</button>
-          <button type="button">History</button>
-          <button type="button">Settings</button>
-          <button type="button" onClick={handleLogout}>
-            Logout
-          </button>
-        </div>
-      )}
-    </div>
-  ) : (
-    <div className="auth-entry">
-      <div className="auth-action-row">
-        <button
-          className={`auth-pill ${
-            authMode === "login" && authCardOpen ? "active" : ""
-          }`}
-          onClick={() => openAuthCard("login")}
-          type="button"
-        >
-          Log In
-        </button>
-        <button
-          className={`auth-pill ${
-            authMode === "signup" && authCardOpen ? "active" : ""
-          }`}
-          onClick={() => openAuthCard("signup")}
-          type="button"
-        >
-          Sign Up
-        </button>
-      </div>
-
-      {authCardOpen && (
-        <div className="inline-auth-card">
-          <div className="inline-auth-head">
-            <strong>{authMode === "login" ? "Log In" : "Create account"}</strong>
-            <button
-              className="auth-close"
-              onClick={() => setAuthCardOpen(false)}
-              type="button"
-              aria-label="Close auth card"
-            >
-              x
-            </button>
-          </div>
-
-          <button
-            className="google-button inline-google-button"
-            onClick={handleGoogleSignIn}
-            disabled={authSubmitting}
-            type="button"
-          >
-            <span className="google-icon" aria-hidden="true">
-              <span className="google-g">G</span>
-            </span>
-            Continue with Google
-          </button>
-
-          <div className="auth-divider">
-            <span></span>
-            <p>OR</p>
-            <span></span>
-          </div>
-
-          <form
-            className="email-auth-form"
-            onSubmit={authMode === "login" ? handleEmailLogin : handleEmailSignup}
-          >
-            <input
-              type="email"
-              value={authEmail}
-              onChange={(event) => {
-                setAuthEmail(event.target.value);
-                setAuthMessage("");
-                setAuthActionMode("");
-              }}
-              placeholder="Email"
-              autoComplete="email"
-              required
-            />
-            <input
-              type="password"
-              value={authPassword}
-              onChange={(event) => {
-                setAuthPassword(event.target.value);
-                setAuthMessage("");
-                setAuthActionMode("");
-              }}
-              placeholder="Password"
-              autoComplete={authMode === "login" ? "current-password" : "new-password"}
-              required
-            />
-            <div className="email-auth-actions">
-              <button
-                className="email-auth-button"
-                type="submit"
-                disabled={authSubmitting}
-              >
-                {authMode === "login" ? "Login" : "Create Account"}
-              </button>
-            </div>
-          </form>
-
-          <p className="auth-switch-copy">
-            {authMode === "login" ? "New here? " : "Already have an account? "}
-            <button
-              type="button"
-              onClick={() => switchAuthMode(authMode === "login" ? "signup" : "login")}
-            >
-              {authMode === "login" ? "Create Account" : "Log In"}
-            </button>
-          </p>
-
-          {authMessage && (
-            <div className="inline-auth-message">
-              <p>{authMessage}</p>
-              {authActionMode && (
-                <button type="button" onClick={() => switchAuthMode(authActionMode)}>
-                  {authActionMode === "login" ? "Go to Login" : "Go to Sign Up"}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-
   return (
     <main className="app-shell">
       <div className="glow glow-blue"></div>
@@ -721,30 +592,35 @@ function App() {
       <div className="glow glow-cyan"></div>
       <div className="grid-overlay"></div>
 
-      <nav className="site-nav">
-        <div className="nav-inner">
-          <div className="nav-brand">
-            <div className="brand-mark">AI</div>
-            <div>
-              <span>Lecture AI Tutor</span>
-              <small>Coding lecture companion</small>
-            </div>
-          </div>
+      <Navbar
+        authReady={authReady}
+        user={user}
+        userLabel={userLabel}
+        profileAvatar={profileAvatar}
+        profileOpen={profileOpen}
+        setProfileOpen={setProfileOpen}
+        handleLogout={handleLogout}
+        renderAvatar={renderAvatar}
+        authMode={authMode}
+        authCardOpen={authCardOpen}
+        openAuthCard={openAuthCard}
+        closeAuthCard={closeAuthCard}
+        handleGoogleSignIn={handleGoogleSignIn}
+        authSubmitting={authSubmitting}
+        handleEmailLogin={handleEmailLogin}
+        handleEmailSignup={handleEmailSignup}
+        authEmail={authEmail}
+        setAuthEmail={setAuthEmail}
+        authPassword={authPassword}
+        setAuthPassword={setAuthPassword}
+        setAuthMessage={setAuthMessage}
+        setAuthActionMode={setAuthActionMode}
+        switchAuthMode={switchAuthMode}
+        authMessage={authMessage}
+        authActionMode={authActionMode}
+      />
 
-          <div className="auth-panel">{authPanel}</div>
-        </div>
-      </nav>
-
-      <section className="hero-section">
-        <div className="section-inner hero-inner">
-          <p className="eyebrow">Personal coding lecture companion</p>
-          <h1>Lecture AI Tutor</h1>
-          <p className="hero-copy">
-            Turn a YouTube coding lecture into a guided learning session with
-            transcript-aware prompts, video context, and your custom GPT tutor.
-          </p>
-        </div>
-      </section>
+      <HeroSection />
 
       <div className="page-content">
         {authMessage && !authCardOpen && (
@@ -752,70 +628,18 @@ function App() {
         )}
 
         {user && needsProfileSetup && (
-          <form className="profile-setup-card" onSubmit={saveProfileSetup}>
-            <div className="profile-setup-copy">
-              <p className="preview-label">First-time setup</p>
-              <h2>Complete Your Profile</h2>
-              <p>Pick how you want to appear inside Lecture AI Tutor.</p>
-            </div>
-
-            <label className="profile-setup-field" htmlFor="profile-username">
-              Username
-              <input
-                id="profile-username"
-                type="text"
-                value={setupUsername}
-                onChange={(event) => setSetupUsername(event.target.value)}
-                placeholder="Choose a username"
-                required
-              />
-            </label>
-
-            <div className="avatar-picker">
-              {AVATAR_OPTIONS.map((avatar) => (
-                <button
-                  className={`avatar-option ${
-                    selectedAvatar === avatar.id ? "selected" : ""
-                  }`}
-                  key={avatar.id}
-                  onClick={() => {
-                    setSelectedAvatar(avatar.id);
-                    setUploadedAvatar("");
-                  }}
-                  type="button"
-                  style={{ background: avatar.gradient }}
-                  aria-label={`Choose ${avatar.label} avatar`}
-                >
-                  <span>{setupUsername.charAt(0).toUpperCase() || "U"}</span>
-                </button>
-              ))}
-
-              <label
-                className={`avatar-upload-option ${
-                  selectedAvatar === "uploaded" ? "selected" : ""
-                }`}
-              >
-                {uploadedAvatar ? (
-                  <img src={uploadedAvatar} alt="Uploaded avatar preview" />
-                ) : (
-                  <span>Upload Image</span>
-                )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleAvatarUpload}
-                />
-              </label>
-            </div>
-
-            <button
-              className="profile-save-button"
-              type="submit"
-              disabled={profileSaving}
-            >
-              {profileSaving ? "Saving Profile..." : "Save Profile"}
-            </button>
-          </form>
+          <ProfileSetup
+            saveProfileSetup={saveProfileSetup}
+            setupUsername={setupUsername}
+            setSetupUsername={setSetupUsername}
+            avatarOptions={AVATAR_OPTIONS}
+            selectedAvatar={selectedAvatar}
+            setSelectedAvatar={setSelectedAvatar}
+            setUploadedAvatar={setUploadedAvatar}
+            uploadedAvatar={uploadedAvatar}
+            handleAvatarUpload={handleAvatarUpload}
+            profileSaving={profileSaving}
+          />
         )}
 
         <section className="input-section section-shell">
@@ -858,147 +682,34 @@ function App() {
 
         {error && <div className="error-box">{error}</div>}
 
-        {metadataLoading && (
-          <section className="preview-section section-shell">
-            <div className="metadata-card metadata-skeleton">
-              <div className="skeleton-thumbnail"></div>
-              <div className="skeleton-content">
-                <div className="skeleton-line skeleton-title"></div>
-                <div className="skeleton-line"></div>
-                <div className="skeleton-line skeleton-short"></div>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {!metadataLoading && thumbnailUrl && (
-          <section className="preview-section section-shell">
-            <div className="section-heading">
-              <p className="preview-label">Video Preview</p>
-              <h2>Lecture detected</h2>
-            </div>
-
-            <div className="metadata-card">
-              <div className="thumbnail-frame">
-                <img src={thumbnailUrl} alt="YouTube lecture thumbnail preview" />
-                <div className="thumbnail-shine"></div>
-              </div>
-
-              <div className="metadata-content">
-                <h2>
-                  {videoMetadata?.title ||
-                    (lectureData
-                      ? "Lecture ready for learning"
-                      : "Preview detected from your link")}
-                </h2>
-                <p className="channel-name">
-                  {videoMetadata?.author_name || "YouTube Lecture"}
-                </p>
-                <p className="ready-pill">Ready for AI learning</p>
-
-                {previewVideoId && (
-                  <p className="video-id">
-                    Video ID: <span>{previewVideoId}</span>
-                  </p>
-                )}
-              </div>
-            </div>
-          </section>
-        )}
+        <VideoPreview
+          metadataLoading={metadataLoading}
+          thumbnailUrl={thumbnailUrl}
+          videoMetadata={videoMetadata}
+          lectureData={lectureData}
+          previewVideoId={previewVideoId}
+        />
 
         {loading && (
-          <section className="results-section section-shell">
-            <div className="premium-loader">
-              <div className="loader-header">
-                <div className="loader-orbit">
-                  <span></span>
-                  <span></span>
-                </div>
-
-                <div>
-                  <p>{LOADING_STEPS[loadingStep]}</p>
-                  <small>Building your guided learning session</small>
-                </div>
-              </div>
-
-              <div className="progress-track">
-                <div
-                  className="progress-fill"
-                  style={{
-                    width: `${((loadingStep + 1) / LOADING_STEPS.length) * 100}%`,
-                  }}
-                ></div>
-              </div>
-
-              <div className="step-list">
-                {LOADING_STEPS.map((step, index) => (
-                  <div
-                    className={`step-item ${
-                      index === loadingStep ? "active" : ""
-                    } ${index < loadingStep ? "complete" : ""}`}
-                    key={step}
-                  >
-                    <span>{index + 1}</span>
-                    <p>{step}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
+          <Loader loadingSteps={LOADING_STEPS} loadingStep={loadingStep} />
         )}
 
         {lectureData && (
-          <section className="results-section section-shell">
-            <div className="success-card">
-              <div>
-                <p className="success-kicker">Ready</p>
-                <h2>Lecture ready for learning</h2>
-                <p>
-                  Your transcript prompt is prepared. The next click copies it,
-                  shows your instructions, and then opens your custom GPT.
-                </p>
-                <p className="video-id success-video-id">
-                  Video ID: <span>{lectureData.video_id}</span>
-                </p>
-              </div>
-
-              <button className="tutor-button" onClick={openTutor}>
-                Learn With AI Tutor
-              </button>
-            </div>
-          </section>
+          <SuccessCard lectureData={lectureData} openTutor={openTutor} />
         )}
 
-        <footer className="site-footer">
-          <span>Lecture AI Tutor</span>
-          <p>Built for focused coding lecture study.</p>
-        </footer>
+        <Footer />
       </div>
 
       {showModal && (
-        <div className="modal-backdrop" onClick={closeModal}>
-          <div
-            className="modal-card"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="modal-icon">✓</div>
-            <h2>Prompt copied</h2>
-            <p>Paste it in Lecture AI Tutor.</p>
-
-            <div className="modal-instructions">
-              {CUSTOM_MODAL_TEXT.split("\n").map((line, index) => (
-                <p key={`${line}-${index}`}>{line || "\u00A0"}</p>
-              ))}
-            </div>
-
-            <button className="modal-button" onClick={continueLearning}>
-              Continue Learning
-            </button>
-          </div>
-        </div>
+        <Modal
+          customModalText={CUSTOM_MODAL_TEXT}
+          closeModal={closeModal}
+          continueLearning={continueLearning}
+        />
       )}
 
-      {toastMessage && <div className="auth-toast">{toastMessage}</div>}
+      {toastMessage && <Toast message={toastMessage} />}
     </main>
   );
 }
