@@ -1,11 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  createUserWithEmailAndPassword,
   onAuthStateChanged,
-  signInWithRedirect,
+  signInWithEmailAndPassword,
+  signInWithPopup,
   signOut,
 } from "firebase/auth";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from "firebase/firestore";
 import "./App.css";
-import { auth, provider } from "./firebase";
+import { auth, db, provider } from "./firebase";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
@@ -27,11 +39,18 @@ const LOADING_STEPS = [
   "Almost ready...",
 ];
 
-const PENDING_YOUTUBE_URL_KEY = "pendingYoutubeUrl";
-const PENDING_PREVIEW_STATE_KEY = "pendingYoutubePreviewState";
-const LOGIN_MODAL_DISMISSED_KEY = "loginModalDismissed";
-const LOGIN_HANDLED_KEY = "loginHandled";
-const LOGIN_SUCCESS_TOAST_KEY = "loginSuccessToastPending";
+const AVATAR_OPTIONS = [
+  { id: "aurora", label: "Aurora", gradient: "linear-gradient(135deg, #2563eb, #22d3ee)" },
+  { id: "nova", label: "Nova", gradient: "linear-gradient(135deg, #7c3aed, #ec4899)" },
+  { id: "ember", label: "Ember", gradient: "linear-gradient(135deg, #f97316, #ef4444)" },
+  { id: "mint", label: "Mint", gradient: "linear-gradient(135deg, #059669, #84cc16)" },
+  { id: "orbit", label: "Orbit", gradient: "linear-gradient(135deg, #0f172a, #6366f1)" },
+  { id: "solar", label: "Solar", gradient: "linear-gradient(135deg, #eab308, #f97316)" },
+  { id: "violet", label: "Violet", gradient: "linear-gradient(135deg, #9333ea, #38bdf8)" },
+  { id: "rose", label: "Rose", gradient: "linear-gradient(135deg, #be123c, #fb7185)" },
+  { id: "steel", label: "Steel", gradient: "linear-gradient(135deg, #475569, #14b8a6)" },
+  { id: "cosmic", label: "Cosmic", gradient: "linear-gradient(135deg, #111827, #a855f7)" },
+];
 
 function getVideoIdFromUrl(url) {
   try {
@@ -54,6 +73,76 @@ function getVideoIdFromUrl(url) {
   }
 }
 
+function getDefaultUsername(user) {
+  return user?.displayName || user?.email?.split("@")[0] || "User";
+}
+
+function getProviderName(user) {
+  const primaryProvider = user.providerData?.[0]?.providerId;
+  return primaryProvider === "google.com" ? "google" : "email";
+}
+
+async function getExistingUserProfile(user) {
+  const userRef = doc(db, "users", user.uid);
+  const userSnap = await getDoc(userRef);
+
+  if (userSnap.exists()) {
+    return userSnap.data();
+  }
+
+  return null;
+}
+
+async function getUserProfileByEmail(email) {
+  const usersQuery = query(
+    collection(db, "users"),
+    where("email", "==", email.trim().toLowerCase())
+  );
+  const usersSnapshot = await getDocs(usersQuery);
+
+  return usersSnapshot.empty ? null : usersSnapshot.docs[0].data();
+}
+
+async function checkEmailAccount(email) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const existingProfile = await getUserProfileByEmail(normalizedEmail);
+
+  return {
+    exists: Boolean(existingProfile),
+    profile: existingProfile,
+  };
+}
+
+function getAvatarOption(avatarId) {
+  return AVATAR_OPTIONS.find((avatar) => avatar.id === avatarId);
+}
+
+function isPopupClosedError(error) {
+  return error?.code === "auth/popup-closed-by-user";
+}
+
+function getFriendlyAuthMessage(error) {
+  switch (error?.code) {
+    case "auth/wrong-password":
+    case "auth/invalid-credential":
+      return "Incorrect password";
+    case "auth/email-already-in-use":
+      return "Account already exists. Please log in.";
+    case "auth/user-not-found":
+      return "No account found. Please sign up.";
+    case "auth/invalid-email":
+      return "Please enter a valid email";
+    case "auth/weak-password":
+      return "Password should be at least 6 characters";
+    case "auth/too-many-requests":
+      return "Too many attempts. Please try again later.";
+    case "auth/network-request-failed":
+      return "Network error. Please check your connection.";
+    default:
+      return "Authentication failed. Please try again.";
+  }
+}
+
 function App() {
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [loading, setLoading] = useState(false);
@@ -65,10 +154,21 @@ function App() {
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  const [restoredPreviewUrl, setRestoredPreviewUrl] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
+  const [authCardOpen, setAuthCardOpen] = useState(false);
+  const [authMode, setAuthMode] = useState("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [authActionMode, setAuthActionMode] = useState("");
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [userProfile, setUserProfile] = useState(null);
+  const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
+  const [setupUsername, setSetupUsername] = useState("");
+  const [selectedAvatar, setSelectedAvatar] = useState(AVATAR_OPTIONS[0].id);
+  const [uploadedAvatar, setUploadedAvatar] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
 
   const previewVideoId = useMemo(() => {
     return lectureData?.video_id || getVideoIdFromUrl(youtubeUrl);
@@ -79,6 +179,9 @@ function App() {
     : "";
 
   const thumbnailUrl = videoMetadata?.thumbnail_url || fallbackThumbnailUrl;
+  const userLabel = userProfile?.username || getDefaultUsername(user);
+  const profileAvatar = userProfile?.avatar || uploadedAvatar || selectedAvatar;
+  const userInitial = userLabel.charAt(0).toUpperCase();
 
   useEffect(() => {
     if (!toastMessage) {
@@ -93,60 +196,39 @@ function App() {
   }, [toastMessage]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       console.log("AUTH USER:", currentUser);
 
       setUser(currentUser);
       setAuthReady(true);
 
-      if (currentUser) {
-        sessionStorage.setItem(LOGIN_HANDLED_KEY, "true");
-        sessionStorage.setItem(LOGIN_MODAL_DISMISSED_KEY, "true");
-
-        const pendingPreviewState = localStorage.getItem(
-          PENDING_PREVIEW_STATE_KEY
-        );
-        const pendingYoutubeUrl = localStorage.getItem(PENDING_YOUTUBE_URL_KEY);
-
-        if (pendingPreviewState) {
-          try {
-            const savedPreview = JSON.parse(pendingPreviewState);
-
-            if (savedPreview.youtubeUrl) {
-              setYoutubeUrl(savedPreview.youtubeUrl);
-              setRestoredPreviewUrl(savedPreview.youtubeUrl);
-            }
-
-            if (savedPreview.videoMetadata) {
-              setVideoMetadata(savedPreview.videoMetadata);
-            }
-
-            setMetadataLoading(false);
-            localStorage.removeItem(PENDING_PREVIEW_STATE_KEY);
-            localStorage.removeItem(PENDING_YOUTUBE_URL_KEY);
-          } catch {
-            localStorage.removeItem(PENDING_PREVIEW_STATE_KEY);
-          }
-        } else if (pendingYoutubeUrl) {
-          setYoutubeUrl(pendingYoutubeUrl);
-          localStorage.removeItem(PENDING_YOUTUBE_URL_KEY);
-        }
-
-        setAuthMessage("");
-        setShowLoginModal(false);
-
-        if (localStorage.getItem(LOGIN_SUCCESS_TOAST_KEY)) {
-          setToastMessage("✅ Signed in successfully");
-          localStorage.removeItem(LOGIN_SUCCESS_TOAST_KEY);
-        }
-      } else {
-        const loginHandled = sessionStorage.getItem(LOGIN_HANDLED_KEY);
-        const loginModalDismissed = sessionStorage.getItem(LOGIN_MODAL_DISMISSED_KEY);
-
-        if (!loginHandled && !loginModalDismissed) {
-          setShowLoginModal(true);
-        }
+      if (!currentUser) {
+        setProfileOpen(false);
+        setUserProfile(null);
+        setNeedsProfileSetup(false);
+        return;
       }
+
+      try {
+        const existingProfile = await getExistingUserProfile(currentUser);
+
+        if (existingProfile) {
+          setUserProfile(existingProfile);
+          setNeedsProfileSetup(false);
+        } else {
+          setUserProfile(null);
+          setSetupUsername(getDefaultUsername(currentUser));
+          setSelectedAvatar(AVATAR_OPTIONS[0].id);
+          setUploadedAvatar("");
+          setNeedsProfileSetup(true);
+        }
+      } catch (profileError) {
+        console.error("Could not load user profile:", profileError);
+      }
+
+      setAuthMessage("");
+      setAuthCardOpen(false);
+      setProfileOpen(false);
     });
 
     return () => unsubscribe();
@@ -180,11 +262,6 @@ function App() {
       return;
     }
 
-    if (restoredPreviewUrl && trimmedUrl === restoredPreviewUrl) {
-      setRestoredPreviewUrl("");
-      return;
-    }
-
     const timeoutId = setTimeout(async () => {
       try {
         setMetadataLoading(true);
@@ -209,35 +286,104 @@ function App() {
     }, 450);
 
     return () => clearTimeout(timeoutId);
-  }, [youtubeUrl, restoredPreviewUrl]);
+  }, [youtubeUrl]);
 
   async function handleGoogleSignIn() {
     setError("");
     setAuthMessage("");
+    setAuthActionMode("");
+    setAuthSubmitting(true);
 
     try {
-      if (youtubeUrl.trim()) {
-        const previewState = {
-          youtubeUrl,
-          videoMetadata,
-          thumbnailUrl,
-          title: videoMetadata?.title || "",
-          channelName: videoMetadata?.author_name || "",
-        };
+      const result = await signInWithPopup(auth, provider);
+      const existingProfile = await getExistingUserProfile(result.user);
 
-        localStorage.setItem(PENDING_YOUTUBE_URL_KEY, youtubeUrl);
-        localStorage.setItem(
-          PENDING_PREVIEW_STATE_KEY,
-          JSON.stringify(previewState)
-        );
+      if (existingProfile) {
+        setUserProfile(existingProfile);
+        setNeedsProfileSetup(false);
+      } else {
+        setUserProfile(null);
+        setSetupUsername(getDefaultUsername(result.user));
+        setSelectedAvatar(AVATAR_OPTIONS[0].id);
+        setUploadedAvatar("");
+        setNeedsProfileSetup(true);
       }
 
-      sessionStorage.setItem(LOGIN_HANDLED_KEY, "true");
-      localStorage.setItem(LOGIN_SUCCESS_TOAST_KEY, "true");
-      await signInWithRedirect(auth, provider);
-    } catch {
-      localStorage.removeItem(LOGIN_SUCCESS_TOAST_KEY);
-      setAuthMessage("Google sign in was not completed. Please try again.");
+      setToastMessage("Signed in successfully");
+    } catch (authError) {
+      if (!isPopupClosedError(authError)) {
+        setAuthMessage(getFriendlyAuthMessage(authError));
+      }
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }
+
+  async function handleEmailLogin(event) {
+    event.preventDefault();
+    setError("");
+    setAuthMessage("");
+    setAuthActionMode("");
+    setAuthSubmitting(true);
+
+    try {
+      await signInWithEmailAndPassword(
+        auth,
+        authEmail.trim().toLowerCase(),
+        authPassword
+      );
+      setToastMessage("Signed in successfully");
+      setAuthEmail("");
+      setAuthPassword("");
+    } catch (authError) {
+      if (authError.code === "auth/user-not-found") {
+        setAuthMessage("No account found. Please sign up.");
+        setAuthActionMode("signup");
+      } else if (
+        authError.code === "auth/wrong-password" ||
+        authError.code === "auth/invalid-credential"
+      ) {
+        const account = await checkEmailAccount(authEmail);
+
+        if (account.exists) {
+          setAuthMessage("Incorrect password");
+        } else {
+          setAuthMessage("No account found. Please sign up.");
+          setAuthActionMode("signup");
+        }
+      } else {
+        setAuthMessage(getFriendlyAuthMessage(authError));
+      }
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }
+
+  async function handleEmailSignup(event) {
+    event.preventDefault();
+    setError("");
+    setAuthMessage("");
+    setAuthActionMode("");
+    setAuthSubmitting(true);
+
+    try {
+      await createUserWithEmailAndPassword(
+        auth,
+        authEmail.trim().toLowerCase(),
+        authPassword
+      );
+      setToastMessage("Account created successfully");
+      setAuthEmail("");
+      setAuthPassword("");
+    } catch (authError) {
+      if (authError.code === "auth/email-already-in-use") {
+        setAuthMessage("Account already exists. Please log in.");
+        setAuthActionMode("login");
+      } else {
+        setAuthMessage(getFriendlyAuthMessage(authError));
+      }
+    } finally {
+      setAuthSubmitting(false);
     }
   }
 
@@ -246,11 +392,11 @@ function App() {
     setAuthMessage("");
 
     try {
-      sessionStorage.removeItem(LOGIN_HANDLED_KEY);
-      sessionStorage.removeItem(LOGIN_MODAL_DISMISSED_KEY);
       await signOut(auth);
       setLectureData(null);
-      setShowLoginModal(false);
+      setProfileOpen(false);
+      setUserProfile(null);
+      setNeedsProfileSetup(false);
       setToastMessage("Signed out successfully");
     } catch {
       setAuthMessage("Logout failed. Please try again.");
@@ -322,15 +468,108 @@ function App() {
     setShowModal(false);
   }
 
-  function closeLoginModal() {
-    sessionStorage.setItem(LOGIN_MODAL_DISMISSED_KEY, "true");
-    sessionStorage.setItem(LOGIN_HANDLED_KEY, "true");
-    setShowLoginModal(false);
+  function openAuthCard(mode) {
+    setAuthMode(mode);
+    setAuthMessage("");
+    setAuthActionMode("");
+    setProfileOpen(false);
+    setAuthCardOpen(true);
   }
 
-  function openLoginModal() {
+  function switchAuthMode(mode) {
+    setAuthMode(mode);
     setAuthMessage("");
-    setShowLoginModal(true);
+    setAuthActionMode("");
+  }
+
+  function handleAvatarUpload(event) {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      setUploadedAvatar(result);
+      setSelectedAvatar("uploaded");
+    };
+
+    reader.readAsDataURL(file);
+  }
+
+  async function saveProfileSetup(event) {
+    event.preventDefault();
+
+    if (!user) {
+      return;
+    }
+
+    const username = setupUsername.trim() || "User";
+    const avatar = selectedAvatar === "uploaded" ? uploadedAvatar : selectedAvatar;
+
+    if (!avatar) {
+      setAuthMessage("Please choose an avatar.");
+      return;
+    }
+
+    setProfileSaving(true);
+    setAuthMessage("");
+
+    try {
+      const profileData = {
+        uid: user.uid,
+        email: user.email || "",
+        username,
+        avatar,
+        provider: getProviderName(user),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      await setDoc(doc(db, "users", user.uid), profileData);
+      setUserProfile({
+        uid: user.uid,
+        email: user.email || "",
+        username,
+        avatar,
+        provider: getProviderName(user),
+      });
+      setNeedsProfileSetup(false);
+      setToastMessage("Profile saved");
+      console.log("User profile created");
+    } catch (profileError) {
+      setAuthMessage(profileError.message || "Could not save profile.");
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  function renderAvatar(avatar, label, className = "profile-avatar") {
+    const builtInAvatar = getAvatarOption(avatar);
+
+    if (
+      avatar?.startsWith("data:") ||
+      avatar?.startsWith("http://") ||
+      avatar?.startsWith("https://")
+    ) {
+      return <img src={avatar} alt={label} className={className} />;
+    }
+
+    if (builtInAvatar) {
+      return (
+        <span
+          className={`${className} fallback-avatar`}
+          style={{ background: builtInAvatar.gradient }}
+        >
+          {label.charAt(0).toUpperCase()}
+        </span>
+      );
+    }
+
+    return <span className={`${className} fallback-avatar`}>{userInitial}</span>;
   }
 
   return (
@@ -352,29 +591,160 @@ function App() {
 
           <div className="auth-panel">
             {!authReady ? null : user ? (
-              <div className="auth-status-card signed-in-status">
-                <span className="online-dot"></span>
-                <img
-                  src={user.photoURL || ""}
-                  alt={user.displayName || "Google user"}
-                  className="user-avatar"
-                />
-                <div className="user-copy">
-                  <span>Signed In</span>
-                  <strong>{user.displayName || "Google User"}</strong>
-                </div>
-                <button className="logout-button" onClick={handleLogout}>
-                  Logout
+              <div className="profile-menu-wrap">
+                <button
+                  className="profile-trigger"
+                  onClick={() => setProfileOpen((isOpen) => !isOpen)}
+                  type="button"
+                >
+                  {renderAvatar(profileAvatar, userLabel)}
+                  <span>{userLabel}</span>
+                  <span className="profile-chevron">v</span>
                 </button>
+
+                {profileOpen && (
+                  <div className="profile-dropdown">
+                    <button type="button">Profile</button>
+                    <button type="button">History</button>
+                    <button type="button">Settings</button>
+                    <button type="button" onClick={handleLogout}>
+                      Logout
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
-              <button className="auth-status-card guest-status" onClick={openLoginModal}>
-                <div className="guest-orb"></div>
-                <div className="guest-copy">
-                  <strong>Guest Mode</strong>
-                  <span>Sign in to sync learning progress</span>
+              <div className="auth-entry">
+                <div className="auth-action-row">
+                  <button
+                    className={`auth-pill ${
+                      authMode === "login" && authCardOpen ? "active" : ""
+                    }`}
+                    onClick={() => openAuthCard("login")}
+                    type="button"
+                  >
+                    Log In
+                  </button>
+                  <button
+                    className={`auth-pill ${
+                      authMode === "signup" && authCardOpen ? "active" : ""
+                    }`}
+                    onClick={() => openAuthCard("signup")}
+                    type="button"
+                  >
+                    Sign Up
+                  </button>
                 </div>
-              </button>
+
+                {authCardOpen && (
+                  <div className="inline-auth-card">
+                    <div className="inline-auth-head">
+                      <strong>
+                        {authMode === "login" ? "Log In" : "Create account"}
+                      </strong>
+                      <button
+                        className="auth-close"
+                        onClick={() => setAuthCardOpen(false)}
+                        type="button"
+                        aria-label="Close auth card"
+                      >
+                        x
+                      </button>
+                    </div>
+
+                    <button
+                      className="google-button inline-google-button"
+                      onClick={handleGoogleSignIn}
+                      disabled={authSubmitting}
+                      type="button"
+                    >
+                      <span className="google-icon" aria-hidden="true">
+                        <span className="google-g">G</span>
+                      </span>
+                      Continue with Google
+                    </button>
+
+                    <div className="auth-divider">
+                      <span></span>
+                      <p>OR</p>
+                      <span></span>
+                    </div>
+
+                    <form
+                      className="email-auth-form"
+                      onSubmit={
+                        authMode === "login" ? handleEmailLogin : handleEmailSignup
+                      }
+                    >
+                      <input
+                        type="email"
+                        value={authEmail}
+                        onChange={(event) => {
+                          setAuthEmail(event.target.value);
+                          setAuthMessage("");
+                          setAuthActionMode("");
+                        }}
+                        placeholder="Email"
+                        autoComplete="email"
+                        required
+                      />
+                      <input
+                        type="password"
+                        value={authPassword}
+                        onChange={(event) => {
+                          setAuthPassword(event.target.value);
+                          setAuthMessage("");
+                          setAuthActionMode("");
+                        }}
+                        placeholder="Password"
+                        autoComplete={
+                          authMode === "login" ? "current-password" : "new-password"
+                        }
+                        required
+                      />
+                      <div className="email-auth-actions">
+                        <button
+                          className="email-auth-button"
+                          type="submit"
+                          disabled={authSubmitting}
+                        >
+                          {authMode === "login" ? "Login" : "Create Account"}
+                        </button>
+                      </div>
+                    </form>
+
+                    <p className="auth-switch-copy">
+                      {authMode === "login"
+                        ? "New here? "
+                        : "Already have an account? "}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          switchAuthMode(authMode === "login" ? "signup" : "login")
+                        }
+                      >
+                        {authMode === "login" ? "Create Account" : "Log In"}
+                      </button>
+                    </p>
+
+                    {authMessage && (
+                      <div className="inline-auth-message">
+                        <p>{authMessage}</p>
+                        {authActionMode && (
+                          <button
+                            type="button"
+                            onClick={() => switchAuthMode(authActionMode)}
+                          >
+                            {authActionMode === "login"
+                              ? "Go to Login"
+                              : "Go to Sign Up"}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -384,7 +754,76 @@ function App() {
           your custom GPT tutor.
         </p>
 
-        {authMessage && <div className="auth-message">{authMessage}</div>}
+        {authMessage && !authCardOpen && (
+          <div className="auth-message">{authMessage}</div>
+        )}
+
+        {user && needsProfileSetup && (
+          <form className="profile-setup-card" onSubmit={saveProfileSetup}>
+            <div className="profile-setup-copy">
+              <p className="preview-label">First-time setup</p>
+              <h2>Complete Your Profile</h2>
+              <p>Pick how you want to appear inside Lecture AI Tutor.</p>
+            </div>
+
+            <label className="profile-setup-field" htmlFor="profile-username">
+              Username
+              <input
+                id="profile-username"
+                type="text"
+                value={setupUsername}
+                onChange={(event) => setSetupUsername(event.target.value)}
+                placeholder="Choose a username"
+                required
+              />
+            </label>
+
+            <div className="avatar-picker">
+              {AVATAR_OPTIONS.map((avatar) => (
+                <button
+                  className={`avatar-option ${
+                    selectedAvatar === avatar.id ? "selected" : ""
+                  }`}
+                  key={avatar.id}
+                  onClick={() => {
+                    setSelectedAvatar(avatar.id);
+                    setUploadedAvatar("");
+                  }}
+                  type="button"
+                  style={{ background: avatar.gradient }}
+                  aria-label={`Choose ${avatar.label} avatar`}
+                >
+                  <span>{setupUsername.charAt(0).toUpperCase() || "U"}</span>
+                </button>
+              ))}
+
+              <label
+                className={`avatar-upload-option ${
+                  selectedAvatar === "uploaded" ? "selected" : ""
+                }`}
+              >
+                {uploadedAvatar ? (
+                  <img src={uploadedAvatar} alt="Uploaded avatar preview" />
+                ) : (
+                  <span>Upload Image</span>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarUpload}
+                />
+              </label>
+            </div>
+
+            <button
+              className="profile-save-button"
+              type="submit"
+              disabled={profileSaving}
+            >
+              {profileSaving ? "Saving Profile..." : "Save Profile"}
+            </button>
+          </form>
+        )}
 
         <div className="input-panel">
           <label htmlFor="youtube-url">YouTube lecture link</label>
@@ -535,33 +974,6 @@ function App() {
 
             <button className="modal-button" onClick={continueLearning}>
               Continue Learning
-            </button>
-          </div>
-        </div>
-      )}
-
-      {showLoginModal && !user && (
-        <div className="modal-backdrop login-modal-backdrop" onClick={closeLoginModal}>
-          <div
-            className="login-modal-card"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="login-modal-glow"></div>
-            <div className="login-modal-icon">AI</div>
-            <h2>Sign in to Continue</h2>
-            <p>
-              Save your learning progress and unlock AI-powered study sessions
-            </p>
-
-            <button className="google-button login-google-button" onClick={handleGoogleSignIn}>
-              <span className="google-icon" aria-hidden="true">
-                <span className="google-g">G</span>
-              </span>
-              Continue with Google
-            </button>
-
-            <button className="cancel-login-button" onClick={closeLoginModal}>
-              Cancel
             </button>
           </div>
         </div>
